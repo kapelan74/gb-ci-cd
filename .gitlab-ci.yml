@@ -7,6 +7,7 @@ stages:
   - build
   - test
   - deploy
+  - stop
 
 variables:
   IMAGE_TAG: $CI_COMMIT_BRANCH-$CI_COMMIT_SHORT_SHA
@@ -30,7 +31,55 @@ test image:
     - docker run -d --name test $CI_REGISTRY_IMAGE:$IMAGE_TAG
     - docker ps
 
-deploy image:
+deploy image to preprod:
   stage: deploy
+  variables:
+    TARGET_ENV: predprod
+    MyLogin: prpAdmin
   script:
-    - echo "Do your deploy here"
+    - echo "Deploy image $IMAGE_TAG to ${TARGET_ENV} with ${MyLogin}:${MyPassword}"
+  only:
+    - main
+  environment:
+    name: predprod
+    on_stop: stop to predprod
+    auto_stop_in: 1 day
+
+deploy image to production:
+  stage: deploy
+  variables:
+    TARGET_ENV: production
+    MyLogin: prodAdmin
+  script:
+    - echo "Deploy image $IMAGE_TAG to ${TARGET_ENV} with ${MyLogin}:${MyPassword}"
+  only:
+    - main
+  environment:
+    name: production
+    on_stop: stop to production
+
+stop to predprod:
+  stage: stop
+  variables:
+    TARGET_ENV: predprod
+  script:
+    - echo "STOP image $IMAGE_TAG to ${TARGET_ENV}"
+  only:
+    - main
+  when: manual
+  environment:
+    name: predprod
+    action: stop
+
+stop to production:
+  stage: stop
+  variables:
+    TARGET_ENV: production
+  script:
+    - echo "STOP image $IMAGE_TAG to ${TARGET_ENV}"
+  only:
+    - main
+  when: manual
+  environment:
+    name: production
+    action: stop
