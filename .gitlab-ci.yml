@@ -1,0 +1,58 @@
+image: docker:18.09.9
+services:
+- docker:18.09.9-dind
+  
+stages:
+  - build
+  - test
+  - release
+  - deploy
+
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  REGISTRY_URL: $CI_REGISTRY
+  IMAGE_TAG: $CI_COMMIT_BRANCH-$CI_COMMIT_SHORT_SHA
+  IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_BRANCH-$CI_COMMIT_SHORT_SHA
+  RELEASE: $CI_REGISTRY_IMAGE:latest
+
+before_script:
+  - docker login $REGISTRY_URL -u $GITLAB_CI_USER -p $GITLAB_CI_PASSWORD
+
+build:
+  stage: build
+  script:
+    - docker build --pull -t $IMAGE .
+    - docker push $IMAGE
+
+release:
+  stage: release
+  script:
+    - docker pull $IMAGE
+    - docker tag $IMAGE $RELEASE
+    - docker push $RELEASE
+  only:
+    - master
+
+deploy:
+  stage: deploy
+  before_script:
+    - apk add --no-cache curl
+    - curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+    - chmod +x ./kubectl
+  environment:
+    name: production
+    url: https://178.154.227.94.nip.io
+  script:
+    - echo $KUBECONFIG
+    - export KUBECONFIG=$KUBECONFIG
+    - sed -i "s/CI_ENVIRONMENT_SLUG/${CI_ENVIRONMENT_SLUG}/g" deployment.yaml
+    - sed -i "s/CI_PROJECT_PATH_SLUG/${CI_PROJECT_PATH_SLUG}/g" deployment.yaml
+    - sed -i "s|IMAGE|${IMAGE}|g" deployment.yaml
+    - cat deployment.yaml
+    - sed -i "s/CI_ENVIRONMENT_SLUG/${CI_ENVIRONMENT_SLUG}/g" service.yaml
+    - sed -i "s/CI_PROJECT_PATH_SLUG/${CI_PROJECT_PATH_SLUG}/g" service.yaml
+    - cat service.yaml
+    - ./kubectl create secret docker-registry gitlab-registry --docker-server=$REGISTRY_URL --docker-username=$GITLAB_CI_USER --docker-password=$GITLAB_CI_PASSWORD --dry-run -o yaml | ./kubectl apply -f -
+    - ./kubectl apply -f deployment.yaml
+    - ./kubectl apply -f service.yaml
+    - ./kubectl apply -f ingress.yaml
